@@ -18,7 +18,7 @@ def main():
     #Achar o path do script do OpenDSS
     path = Path(__file__)
     CurrentFolder = path.parent
-    MasterFile = CurrentFolder / 'objs' / '6Bus' / 'Caso_teste.dss'
+    MasterFile = CurrentFolder / 'objs' / '37Bus' / 'ieee37.dss'
 
     baseva =  33.3 * 10**6
 
@@ -26,6 +26,7 @@ def main():
     
     time = timeit.timeit(lambda: eesd.run(10**-5, 100), number=1)
     print(time)
+    
     gabarito = get_gabarito(eesd)
     
     #eesd.vet_estados = gabarito.copy()

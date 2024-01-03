@@ -5,7 +5,6 @@ import scipy as sp
 from dss import DSS as dss_engine
 from Jacobiana import Jacobiana
 from Residuos import Residuo
-from Pos_filtragem import Pos_filtragem
 
 class EESD():
     def __init__(self, master_path, baseva: float = 10**6) -> None:
@@ -136,7 +135,7 @@ class EESD():
         return barras.index[barras['nome_barra'] == nome].to_list()[0]
 
     def pegar_fases(self) -> np.array:
-        fases = self.DSSCircuit.ActiveCktElement.NodeOrder - 1
+        fases = self.DSSCircuit.ActiveBus.Nodes - 1
         fases = set(fases)
         fases.discard(-1)
         
@@ -148,11 +147,11 @@ class EESD():
         num_medidas = 0
         for idx in range(len(self.DSSCircuit.AllBusNames)):
             if not barras['Geracao'][idx]:
-                barras['Inj_pot_at'][idx] = np.array([0, 0, 0])
-                barras['Inj_pot_rat'][idx] = np.array([0, 0, 0])
+                barras['Inj_pot_at'][idx] = np.array([0, 0, 0], dtype=np.float64)
+                barras['Inj_pot_rat'][idx] = np.array([0, 0, 0], dtype=np.float64)
                 num_medidas += 6
         
-        #Amostra e salva os valores dos medidores no sistema
+        #Amostra e salva os valores dos medidores do sistema
         self.DSSMonitors.SampleAll()
         self.DSSMonitors.SaveAll()
 
@@ -160,9 +159,20 @@ class EESD():
         for _ in range(self.DSSMonitors.Count):
             barra = self.DSSMonitors.Terminal - 1
             index_barra = self.achar_index_barra(barras, barra)
+            
+            #Salvar os nós em cada barra
             fases = self.pegar_fases()
             barras['Fases'][index_barra] = fases
+            
+            #Pegar as fases da carga atual
+            fases = self.DSSCircuit.ActiveCktElement.NodeOrder - 1
+            fases = list(dict.fromkeys(fases))
+            fases = [fase for fase in fases if fase != -1]
+            
             matriz_medidas = self.DSSMonitors.AsMatrix()[0][2:]
+            
+            if index_barra == 0 and 'pqi' in self.DSSMonitors.Name:
+                print(barras['nome_barra'][index_barra], matriz_medidas)
             
             if 'pqij' in self.DSSMonitors.Name:
                 if type(barras['Flux_pot_at'][index_barra]) != list and type(barras['Flux_pot_rat'][index_barra]) != list:
@@ -190,8 +200,11 @@ class EESD():
                     medidas_at[fase] = matriz_medidas[i*2]
                     medidas_rat[fase] = matriz_medidas[i*2+1]
                     
-                barras['Inj_pot_at'][index_barra] = -medidas_at*1000 / baseva
-                barras['Inj_pot_rat'][index_barra] = -medidas_rat*1000 / baseva
+                if index_barra == 0:
+                    print(medidas_at, medidas_rat)
+                    
+                barras['Inj_pot_at'][index_barra] += -medidas_at*1000 / baseva
+                barras['Inj_pot_rat'][index_barra] += -medidas_rat*1000 / baseva
                 
             elif 'v' in self.DSSMonitors.Name:
                 if type(barras['Tensao'][index_barra]) != np.ndarray:
@@ -209,6 +222,28 @@ class EESD():
             
         return barras, num_medidas
 
+    def forma_matriz(self, fases: list, fases_barra: list, Yprim: list) -> np.array:
+        if len(fases) == 4:
+            Yprim = np.reshape(Yprim, (4, 4))
+        
+        elif len(fases) == 3:
+            Yprim = np.reshape(Yprim, (3, 3))
+            
+        elif len(fases) == 2 and not -1 in fases:
+            temp = np.zeros((len(fases_barra), len(fases_barra)), dtype=np.complex128)
+            temp[fases[0], fases[0]] = Yprim[0]
+            temp[fases[0], fases[1]] = Yprim[1]
+            temp[fases[1], fases[0]] = Yprim[2]
+            temp[fases[1], fases[1]] = Yprim[3]
+            Yprim = temp.copy()
+            
+        elif -1 in fases:
+            temp = np.zeros((len(fases_barra), len(fases_barra)), dtype=np.complex128)
+            temp[fases[0]][fases[0]] = Yprim[0]
+            Yprim = temp.copy()
+            
+        return Yprim
+        
     def Conserta_Ybus(self, Ybus):
         self.DSSCircuit.Transformers.First
         for _ in range(self.DSSCircuit.Transformers.Count):
@@ -245,10 +280,16 @@ class EESD():
             real = Yprim[::2]
             imag = Yprim[1::2]*1j
             Yprim = real+imag
-            Yprim = np.reshape(Yprim, (4, 4))
             barra_correspondente = self.DSSCircuit.ActiveCktElement.BusNames[0].split('.')[0]
-            no1 = self.nodes[f"{barra_correspondente}.{1}"]
-            Ybus[no1:no1+3, no1:no1+3] -= Yprim[:3, :3]
+            self.DSSCircuit.SetActiveBus(barra_correspondente)
+            fases_barra = self.DSSCircuit.ActiveBus.Nodes
+            fases = self.DSSCircuit.ActiveCktElement.NodeOrder - 1
+            Yprim = np.array(Yprim, dtype=np.complex128)
+            
+            Yprim = self.forma_matriz(fases, fases_barra, Yprim)
+                
+            no1 = self.nodes[f"{barra_correspondente}.{min(fases_barra)}"]
+            Ybus[no1:no1+len(fases_barra), no1:no1+len(fases_barra)] -= Yprim[:len(fases_barra), :len(fases_barra)]
             self.DSSCircuit.Loads.Next
                 
         self.DSSCircuit.SetActiveElement('Vsource.source')
@@ -282,7 +323,7 @@ class EESD():
         
         angs = self.vet_estados[:(self.DSSCircuit.NumBuses-count)*3]
         tensoes = self.vet_estados[(self.DSSCircuit.NumBuses-count)*3:]
-        ang_ref = np.array([0, -2*np.pi/3, 2*np.pi/3])
+        ang_ref = np.array([-4.51072701e-09, -2.09439511e+00,  2.09439510e+00])
         tensoes_ref = self.barras['Tensao'][self.DSSCircuit.NumBuses-1]
         angs = np.concatenate((ang_ref, angs))
         tensoes = np.concatenate((tensoes_ref, tensoes))
@@ -337,7 +378,7 @@ class EESD():
         
         angs = self.vet_estados[:(self.DSSCircuit.NumBuses-count)*3]
         tensoes = self.vet_estados[(self.DSSCircuit.NumBuses-count)*3:]
-        ang_ref = np.array([0, -2*np.pi/3, 2*np.pi/3])
+        ang_ref = np.array([-4.51072701e-09, -2.09439511e+00, 2.09439510e+00])
         tensoes_ref = self.barras['Tensao'][self.DSSCircuit.NumBuses-1]
         angs = np.concatenate((angs, ang_ref))
         tensoes = np.concatenate((tensoes, tensoes_ref))
@@ -380,12 +421,10 @@ class EESD():
         while(np.max(np.abs(delx)) > max_error and max_iter > k):
 
             self.residuo = self.Calcula_Residuo()
-
+            #print(self.residuo)
             self.jacobiana = self.Calcula_Jacobiana()
             
             self.matriz_pesos, self.dp = self.Calcula_pesos()
-            
-            self.gera_medida_imperfeita(0)
             
             #Calcula a matriz ganho
             matriz_ganho = self.jacobiana.T @ self.matriz_pesos @ self.jacobiana
@@ -399,5 +438,5 @@ class EESD():
             self.vet_estados += delx
             
             k += 1
-
+            print(k)
         return self.vet_estados
