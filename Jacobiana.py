@@ -12,34 +12,37 @@ class Jacobiana():
     def Derivadas_inj_pot_at(self, medida_atual: int, index_barra: int, num_buses: int, Ybus, count) -> int:
         barra1 = self.barras['nome_barra'][index_barra]
         fases = self.barras['Fases'][index_barra]
+        lista_fase = self.barras['Fases'].tolist()
+        index_fase = np.sum([len(elem) for elem in lista_fase[:index_barra]])
         basekv = self.barras['Bases'][index_barra]
-        baseY = self.baseva / ((basekv*1000)**2)
+        baseY = self.baseva / ((basekv*1000)**2)        
         
-        for fase in fases:
+        for i, fase in enumerate(fases):
             no1 = self.nodes[barra1+f'.{fase+1}']
-            tensao_estimada = self.vet_estados[(num_buses+index_barra)*3+fase]
-            ang_estimado = self.vet_estados[(index_barra)*3+fase]
+            tensao_estimada = self.vet_estados[int(len(self.vet_estados)//2+index_fase+i)]
+            ang_estimado = self.vet_estados[int(index_fase+i)]
 
             #Derivada da injeção de potência ativa com relação as tensões
             for index_barra2 in range(len(self.barras['nome_barra'])):
                 barra2 = self.barras['nome_barra'][index_barra2]
                 fases2 = self.barras['Fases'][index_barra2]
+                index_fase2 = np.sum([len(elem) for elem in lista_fase[:index_barra2]])
                 
                 if self.barras['Geracao'][index_barra2]:
                     continue
 
-                for m in fases2:
+                for idx, m in enumerate(fases2):
                     no2 = self.nodes[barra2+f'.{m+1}']
                     Yij = Ybus[no1, no2] / baseY
-                    Gs = np.real(Yij) 
-                    Bs = np.imag(Yij) 
+                    Gs = np.real(Yij)
+                    Bs = np.imag(Yij)
                     if no1 == no2:
                         delta = ((tensao_estimada**2)*Gs+self.barras['Inj_pot_at_est'][index_barra][fase]) / tensao_estimada
                     else:
-                        ang_estimado2 = self.vet_estados[(index_barra2)*3+m]
+                        ang_estimado2 = self.vet_estados[int(index_fase2+idx)]
                         delta = tensao_estimada*(Gs*np.cos(ang_estimado-ang_estimado2)+Bs*np.sin(ang_estimado-ang_estimado2))
 
-                    self.jacobiana[medida_atual][(num_buses-count+index_barra2)*3+m] = delta
+                    self.jacobiana[medida_atual][int(len(self.vet_estados)//2+index_fase2+idx-3)] = delta
             
             #Derivadas de injeção de potência ativa com relação aos ângulos
             for index_barra2 in range(len(self.barras['nome_barra'])):
@@ -49,8 +52,10 @@ class Jacobiana():
 
                 barra2 = self.barras['nome_barra'][index_barra2]
                 fases2 = self.barras['Fases'][index_barra2]
+                
+                index_fase2 = np.sum([len(elem) for elem in lista_fase[:index_barra2]])
 
-                for m in fases2:
+                for k, m in enumerate(fases2):
                     no2 = self.nodes[barra2+f'.{m+1}']
                     Yij = Ybus[no1, no2] / baseY
                     Gs = np.real(Yij)
@@ -58,25 +63,28 @@ class Jacobiana():
                     if no1 == no2:
                         delta = -Bs*(tensao_estimada**2)
                         delta2 = 0
-                        for i in range(len(self.barras['nome_barra'])):
-                            barra3 = self.barras['nome_barra'][i]
-                            fases3 = self.barras['Fases'][i]
-                            for n in fases3:
+                        
+                        for idx in range(len(self.barras['nome_barra'])):
+                            barra3 = self.barras['nome_barra'][idx]
+                            fases3 = self.barras['Fases'][idx]
+                            index_fase3 = np.sum([len(elem) for elem in lista_fase[:idx]])
+                            
+                            for j, n in enumerate(fases3):
                                 no3 = self.nodes[barra3+f'.{n+1}']
                                 Yij = Ybus[no1, no3] / baseY
                                 if Yij != 0:
-                                    tensao_estimada2 = self.vet_estados[(num_buses+i)*3 + n]
-                                    ang_estimado2 = self.vet_estados[(i)*3 + n]
+                                    tensao_estimada2 = self.vet_estados[int(len(self.vet_estados)//2+index_fase3+j)]
+                                    ang_estimado2 = self.vet_estados[int(index_fase3+j)]
                                     Gs = np.real(Yij)
                                     Bs = np.imag(Yij)
                                     delta2 += tensao_estimada2*(Gs*np.sin(ang_estimado-ang_estimado2)-Bs*np.cos(ang_estimado-ang_estimado2))
                         delta = delta - tensao_estimada*delta2
                     else:
-                        tensao_estimada2 = self.vet_estados[(num_buses+index_barra2)*3+m]
-                        ang_estimado2 = self.vet_estados[(index_barra2)*3+m]
+                        tensao_estimada2 = self.vet_estados[int(len(self.vet_estados)//2+index_fase2+k)]
+                        ang_estimado2 = self.vet_estados[int(index_fase2+k)]
                         delta = tensao_estimada*tensao_estimada2*(Gs*np.sin(ang_estimado-ang_estimado2)-Bs*np.cos(ang_estimado-ang_estimado2))
                         
-                    self.jacobiana[medida_atual][(index_barra2)*3 + m] = delta
+                    self.jacobiana[medida_atual][int(index_fase2+k)] = delta
                 
             medida_atual += 1
             
@@ -85,14 +93,16 @@ class Jacobiana():
     def Derivadas_inj_pot_rat(self, medida_atual: int, index_barra: int, num_buses: int, Ybus, count) -> int:
         barra1 = self.barras['nome_barra'][index_barra]
         fases = self.barras['Fases'][index_barra]
+        lista_fase = self.barras['Fases'].tolist()
+        index_fase = np.sum([len(elem) for elem in lista_fase[:index_barra]])
         basekv = self.barras['Bases'][index_barra]
         baseY = self.baseva / ((basekv*1000)**2)
         
         #Derivada da injeção de potência reativa com relação as tensões
-        for fase in fases:
+        for i, fase in enumerate(fases):
             no1 = self.nodes[barra1+f'.{fase+1}']
-            tensao_estimada = self.vet_estados[(num_buses+index_barra)*3+fase]
-            ang_estimado = self.vet_estados[(index_barra)*3+fase]
+            tensao_estimada = self.vet_estados[int(len(self.vet_estados)//2+index_fase+i)]
+            ang_estimado = self.vet_estados[int(index_fase+i)]
             
             for index_barra2 in range(len(self.barras['nome_barra'])):
                 if self.barras['Geracao'][index_barra2]:
@@ -100,8 +110,10 @@ class Jacobiana():
                 
                 barra2 = self.barras['nome_barra'][index_barra2]
                 fases2 = self.barras['Fases'][index_barra2]
+                
+                index_fase2 = np.sum([len(elem) for elem in lista_fase[:index_barra2]])
 
-                for m in fases2:
+                for idx, m in enumerate(fases2):
                     no2 = self.nodes[barra2+f'.{m+1}']
                     Yij = Ybus[no1, no2] / baseY
                     Gs = np.real(Yij)
@@ -109,10 +121,10 @@ class Jacobiana():
                     if no1 == no2:
                         delta = ((tensao_estimada**2)*(-Bs)+self.barras['Inj_pot_rat_est'][index_barra][fase]) / tensao_estimada
                     else:
-                        ang_estimado2 = self.vet_estados[(index_barra2)*3+m]
+                        ang_estimado2 = self.vet_estados[int(index_fase2+idx)]
                         delta = tensao_estimada*(Gs*np.sin(ang_estimado-ang_estimado2)-Bs*np.cos(ang_estimado-ang_estimado2))
                         
-                    self.jacobiana[medida_atual][(num_buses-count+index_barra2)*3+m] = delta
+                    self.jacobiana[medida_atual][int(len(self.vet_estados)//2+index_fase2+idx-3)] = delta
 
             #Derivadas de injeção de potência reativa com relação aos ângulos
             for index_barra2 in range(len(self.barras['nome_barra'])):
@@ -121,7 +133,10 @@ class Jacobiana():
 
                 barra2 = self.barras['nome_barra'][index_barra2]
                 fases2 = self.barras['Fases'][index_barra2]
-                for m in fases2:
+                
+                index_fase2 = np.sum([len(elem) for elem in lista_fase[:index_barra2]])
+                
+                for j, m in enumerate(fases2):
                     no2 = self.nodes[barra2+f'.{m+1}']
                     Yij = Ybus[no1, no2] / baseY
                     Gs = np.real(Yij)
@@ -130,11 +145,11 @@ class Jacobiana():
                         medida_at = self.barras['Inj_pot_at_est'][index_barra][fase]
                         delta = -Gs*(tensao_estimada**2) + medida_at
                     else:
-                        tensao_estimada2 = self.vet_estados[(num_buses+index_barra2)*3+m]
-                        ang_estimado2 = self.vet_estados[(index_barra2)*3+m]
+                        tensao_estimada2 = self.vet_estados[int(len(self.vet_estados)//2+index_fase2+j)]
+                        ang_estimado2 = self.vet_estados[int(index_fase2+j)]
                         delta = -tensao_estimada*tensao_estimada2*(Gs*np.cos(ang_estimado-ang_estimado2)+Bs*np.sin(ang_estimado-ang_estimado2))
                         
-                    self.jacobiana[medida_atual][(index_barra2)*3+m] = delta
+                    self.jacobiana[medida_atual][int(index_fase2+j)] = delta
                     
             medida_atual += 1
                     
@@ -142,9 +157,11 @@ class Jacobiana():
 
     def Derivadas_tensao(self, medida_atual: int, index_barra: int, num_buses: int, count) -> int:   
         fases = self.barras['Fases'][index_barra]
+        index_fase = self.barras['Fases'].tolist()
+        index_fase = np.sum([len(elem) for elem in index_fase[:index_barra]])
 
-        for fase in fases:
-            self.jacobiana[medida_atual][(num_buses-count+index_barra)*3 + fase] = 1
+        for i, fase in enumerate(fases):
+            self.jacobiana[medida_atual][int(len(self.vet_estados)//2+index_fase+i-3)] = 1
             medida_atual += 1
         
         return medida_atual
