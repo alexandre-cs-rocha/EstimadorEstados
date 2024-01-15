@@ -307,11 +307,16 @@ class EESD():
         return Ybus
 
     def Calcula_pesos(self) -> tuple:
-        inj_pot_at = np.vstack(self.barras['Inj_pot_at'].to_numpy()).flatten()
-        inj_pot_rat = np.vstack(self.barras['Inj_pot_rat'].to_numpy()).flatten()
-        tensao = np.vstack(self.barras['Tensao'].to_numpy()).flatten()
+        inj_pot_at = []
+        inj_pot_rat = []
+        tensoes = []
+        for fases, pot_at, pot_rat, tensao in zip(self.barras['Fases'], self.barras['Inj_pot_at'], self.barras['Inj_pot_rat'], self.barras['Tensao']):
+            for fase in fases:
+                inj_pot_at.append(pot_at[fase])
+                inj_pot_rat.append(pot_rat[fase])
+                tensoes.append(tensao[fase])
         
-        medidas = np.concatenate([inj_pot_at[:-3], inj_pot_rat[:-3], tensao[:-3]])
+        medidas = np.concatenate([inj_pot_at[:-3], inj_pot_rat[:-3], tensoes[:-3]])
 
         dp = (medidas * 0.01) / (3 * 100)
         dp[dp == 0] = 10**-5
@@ -319,8 +324,6 @@ class EESD():
         pesos[pesos > 10**10] = 10**10
             
         matriz_pesos = np.diag(pesos)
-        
-        matriz_pesos = np.diag([1 for _ in range(114)])
         
         return matriz_pesos, np.abs(dp)
     
@@ -396,7 +399,7 @@ class EESD():
         tensoes = np.concatenate((tensoes, tensoes_ref))
         vet_estados_aux = np.concatenate((angs, tensoes))
         
-        jac = Jacobiana(vet_estados_aux, self.baseva, self.barras, self.nodes, self.num_medidas)
+        jac = Jacobiana(vet_estados_aux, self.baseva, self.barras, self.nodes, (len(fases)-3)*3)
         
         medida_atual = 0
         for idx, medida in enumerate(self.barras['Inj_pot_at']):
