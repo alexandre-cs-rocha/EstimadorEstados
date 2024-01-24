@@ -16,10 +16,10 @@ class EESD():
         
         self.barras, self.num_medidas = self.medidas(self.baseva)
         self.vet_estados = self.iniciar_vet_estados()
-        self.nodes = self.organizar_nodes()
         
         Ybus = sp.sparse.csc_matrix(self.DSSObj.YMatrix.GetCompressedYMatrix())
-        self.Ybus = self.Conserta_Ybus(Ybus)
+        self.Ybus, self.nodes = self.organiza_Ybus(Ybus)
+        self.Ybus = self.Conserta_Ybus(self.Ybus)
 
     def resolve_fluxo_carga(self):
         self.DSSText.Command = 'Clear'
@@ -42,7 +42,7 @@ class EESD():
         DSSText = DSSObj.Text
         DSSCircuit = DSSObj.ActiveCircuit
         DSSMonitors = DSSCircuit.Monitors
-        
+
         return DSSCircuit, DSSText, DSSObj, DSSMonitors
 
     def iniciar_medidores(self) -> None:
@@ -51,8 +51,15 @@ class EESD():
             for j, elem in enumerate(self.DSSCircuit.Buses.AllPCEatBus):
                 if 'Load' in elem or 'Generator' in elem or 'Vsource' in elem:
                     self.DSSText.Command = f'New Monitor.pqi{i}{j} element={elem}, terminal=1, mode=1, ppolar=no'
-                    
-            elem = self.DSSCircuit.Buses.AllPDEatBus[0]
+            
+            max_fases = 0
+            elem = 'None'
+            for pde in self.DSSCircuit.Buses.AllPDEatBus:
+                self.DSSCircuit.SetActiveElement(pde)
+                num_fases = len(self.DSSCircuit.ActiveCktElement.NodeOrder)
+                if num_fases > max_fases:
+                    elem = self.DSSCircuit.ActiveCktElement.Name
+                    max_fases = num_fases
             if elem != 'None':
                 self.DSSCircuit.SetActiveElement(elem)
                 if self.DSSCircuit.ActiveCktElement.BusNames[0].split('.')[0] == barra:
@@ -63,13 +70,6 @@ class EESD():
                     
                 else:
                     print(f'Nenhum elemento conectado na barra {barra}')
-
-    def organizar_nodes(self) -> dict:
-        nodes = {}
-        for i, node in enumerate(self.DSSCircuit.YNodeOrder):
-            nodes[node.lower()] = i
-        
-        return nodes
 
     def indexar_barras(self) -> pd.DataFrame:
         #Designa indíces às barras
@@ -116,7 +116,7 @@ class EESD():
     def iniciar_vet_estados(self) -> np.array:
         fases = self.barras['Fases'].tolist()
         fases = [sub_elem for elem in fases for sub_elem in elem]
-        tensoes = np.array([1 for fase in fases[:-3]], dtype=np.float64)
+        tensoes = np.array([1 for _ in fases[:-3]], dtype=np.float64)
         angulos = np.zeros(len(fases[:-3]))
         
         for i, fase in enumerate(fases[:-3]):
@@ -150,11 +150,12 @@ class EESD():
         
         num_medidas = 0
         for idx, bus in enumerate(barras['nome_barra']):
+            self.DSSCircuit.SetActiveBus(bus)
+            fases = self.pegar_fases()
+            barras['Fases'][idx] = fases
             if not barras['Geracao'][idx]:
                 barras['Inj_pot_at'][idx] = np.array([0, 0, 0], dtype=np.float64)
                 barras['Inj_pot_rat'][idx] = np.array([0, 0, 0], dtype=np.float64)
-                self.DSSCircuit.SetActiveBus(bus)
-                fases = self.pegar_fases()
                 num_medidas += len(fases)*2
         
         #Amostra e salva os valores dos medidores do sistema
@@ -166,15 +167,10 @@ class EESD():
             barra = self.DSSMonitors.Terminal - 1
             index_barra = self.achar_index_barra(barras, barra)
             
-            #Salvar os nós em cada barra
-            fases = self.pegar_fases()
-            barras['Fases'][index_barra] = fases
-            
             #Pegar as fases da carga atual
             fases = self.DSSCircuit.ActiveCktElement.NodeOrder - 1
             fases = list(dict.fromkeys(fases))
             fases = [fase for fase in fases if fase != -1]
-            
             matriz_medidas = self.DSSMonitors.AsMatrix()[0][2:]
             
             if 'pqij' in self.DSSMonitors.Name:
@@ -209,7 +205,7 @@ class EESD():
             elif 'v' in self.DSSMonitors.Name:
                 if type(barras['Tensao'][index_barra]) != np.ndarray:
                     medidas = np.zeros(3)
-
+                    
                     for i, fase in enumerate(fases):
                         medidas[fase] = matriz_medidas[i]
     
@@ -247,7 +243,40 @@ class EESD():
             Yprim = temp.copy()
             
         return Yprim
+    
+    def organiza_Ybus(self, Ybus):
+        nodes = {}
+        for i, node in enumerate(self.DSSCircuit.YNodeOrder):
+            nodes[node.lower()] = i
         
+        temp = Ybus.copy()
+        count = 0
+        for i, bus in enumerate(self.DSSCircuit.AllBusNames):
+            for fase in sorted(self.barras['Fases'].iloc[i-1]):
+                no = nodes[f'{bus}.{fase+1}']
+                temp[count] = Ybus[no].toarray()
+                count += 1
+            
+        temp = temp.T
+        Ybus_org = temp.copy()
+        count = 0
+        for i, bus in enumerate(self.DSSCircuit.AllBusNames):
+            for fase in sorted(self.barras['Fases'].iloc[i-1]):
+                no = nodes[f'{bus}.{fase+1}']
+                Ybus_org[count] = temp[no]
+                count += 1
+                
+        Ybus_org = sp.sparse.csc_matrix(Ybus_org)
+        
+        nodes = {}
+        count = 0
+        for i, bus in enumerate(self.DSSCircuit.AllBusNames):
+            for fase in sorted(self.barras['Fases'].iloc[i-1]):
+                nodes[f'{bus}.{fase+1}'] = count
+                count += 1
+
+        return Ybus_org, nodes
+    
     def Conserta_Ybus(self, Ybus):
         self.DSSCircuit.Transformers.First
         for _ in range(self.DSSCircuit.Transformers.Count):
@@ -359,6 +388,9 @@ class EESD():
 
                     no1 = self.nodes[barra+f'.{fase+1}']
                     Yline = self.Ybus[no1] / baseY
+                    if self.barras['nome_barra'][idx] == '675' and fase == 0:
+                        pass
+                    
                     Gline = np.real(Yline).toarray()
                     Bline = np.imag(Yline).toarray()
 
@@ -436,7 +468,7 @@ class EESD():
         while(np.max(np.abs(delx)) > max_error and max_iter > k):
 
             self.residuo = self.Calcula_Residuo()
-            
+
             self.jacobiana = self.Calcula_Jacobiana()
             
             self.matriz_pesos, self.dp = self.Calcula_pesos()
@@ -453,5 +485,5 @@ class EESD():
             self.vet_estados += delx
             
             k += 1
-
+            print(k)
         return self.vet_estados
