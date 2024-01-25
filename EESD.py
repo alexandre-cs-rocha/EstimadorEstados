@@ -83,6 +83,8 @@ class EESD():
             self.DSSCircuit.SetActiveBus(barra)
             #Base é em fase-neutro
             base = self.DSSCircuit.Buses.kVBase
+            if base == 0:
+                raise ValueError('Tensão base não pode ser 0')
             nomes.append(barra)
             bases.append(base)
             geracao.append(self.DSSCircuit.Buses.AllPCEatBus[0] == 'Vsource.source')

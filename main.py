@@ -18,7 +18,7 @@ def main():
     #Achar o path do script do OpenDSS
     path = Path(__file__)
     CurrentFolder = path.parent
-    MasterFile = CurrentFolder / 'objs' / '13Bus' / 'IEEE13Nodeckt.dss'
+    MasterFile = CurrentFolder / 'objs' / '37Bus' / 'ieee37BusPV_2.dss'
 
     baseva =  33.3 * 10**6
 
