@@ -46,11 +46,13 @@ class EESD():
         return DSSCircuit, DSSText, DSSObj, DSSMonitors
 
     def iniciar_medidores(self) -> None:
+        count = 0
         for i, barra in enumerate(self.DSSCircuit.AllBusNames):
             self.DSSCircuit.SetActiveBus(barra)
             for j, elem in enumerate(self.DSSCircuit.Buses.AllPCEatBus):
                 if 'Load' in elem or 'Generator' in elem or 'Vsource' in elem:
-                    self.DSSText.Command = f'New Monitor.pqi{i}{j} element={elem}, terminal=1, mode=1, ppolar=no'
+                    self.DSSText.Command = f'New Monitor.pqi{count} element={elem}, terminal=1, mode=1, ppolar=no'
+                    count += 1
             
             max_fases = 0
             elem = 'None'
@@ -154,8 +156,8 @@ class EESD():
             fases = self.pegar_fases()
             barras['Fases'][idx] = fases
             if not barras['Geracao'][idx]:
-                barras['Inj_pot_at'][idx] = np.array([0, 0, 0], dtype=np.float64)
-                barras['Inj_pot_rat'][idx] = np.array([0, 0, 0], dtype=np.float64)
+                barras['Inj_pot_at'][idx] = np.array([0, 0, 0, 0], dtype=np.float64)
+                barras['Inj_pot_rat'][idx] = np.array([0, 0, 0, 0], dtype=np.float64)
                 num_medidas += len(fases)*2
         
         #Amostra e salva os valores dos medidores do sistema
@@ -192,8 +194,8 @@ class EESD():
                 barras['Flux_pot_rat'][index_barra].append((elemento, medidas_rat))
             
             elif 'pqi' in self.DSSMonitors.Name:
-                medidas_at = np.zeros(3)
-                medidas_rat = np.zeros(3)
+                medidas_at = np.zeros(4)
+                medidas_rat = np.zeros(4)
                 
                 for i, fase in enumerate(fases):
                     medidas_at[fase] = matriz_medidas[i*2]
@@ -208,7 +210,7 @@ class EESD():
                     
                     for i, fase in enumerate(fases):
                         medidas[fase] = matriz_medidas[i]
-    
+
                     basekv = self.DSSCircuit.Buses.kVBase
                     barras['Tensao'][index_barra] = medidas / (basekv*1000)
                     if not barras['Geracao'][index_barra]:
@@ -324,6 +326,25 @@ class EESD():
             no1 = self.nodes[f"{barra_correspondente}.{min(fases_barra)}"]
             Ybus[no1:no1+len(fases_barra), no1:no1+len(fases_barra)] -= Yprim[:len(fases_barra), :len(fases_barra)]
             self.DSSCircuit.Loads.Next
+            
+        self.DSSCircuit.Generators.First
+        for _ in range(self.DSSCircuit.Generators.Count):
+            self.DSSCircuit.SetActiveElement(self.DSSCircuit.Generators.Name)
+            Yprim = self.DSSCircuit.ActiveCktElement.Yprim
+            real = Yprim[::2]
+            imag = Yprim[1::2]*1j
+            Yprim = real+imag
+            barra_correspondente = self.DSSCircuit.ActiveCktElement.BusNames[0].split('.')[0]
+            self.DSSCircuit.SetActiveBus(barra_correspondente)
+            fases_barra = self.DSSCircuit.ActiveBus.Nodes
+            fases = self.DSSCircuit.ActiveCktElement.NodeOrder - 1
+            Yprim = np.array(Yprim, dtype=np.complex128)
+            
+            Yprim = self.forma_matriz(fases, fases_barra, Yprim)
+                
+            no1 = self.nodes[f"{barra_correspondente}.{min(fases_barra)}"]
+            Ybus[no1:no1+len(fases_barra), no1:no1+len(fases_barra)] -= Yprim[:len(fases_barra), :len(fases_barra)]
+            self.DSSCircuit.Loads.Next
                 
         self.DSSCircuit.SetActiveElement('Vsource.source')
         Yprim = self.DSSCircuit.ActiveCktElement.Yprim
@@ -364,7 +385,7 @@ class EESD():
         angs = self.vet_estados[:len(fases[:-(count)*3])]
         tensoes = self.vet_estados[len(fases[:-(count)*3]):]
         ang_ref = np.array([0, -120*2*np.pi / 360,  120*2*np.pi / 360])
-        tensoes_ref = self.barras['Tensao'][self.DSSCircuit.NumBuses-1]
+        tensoes_ref = self.barras['Tensao'][self.DSSCircuit.NumBuses-1][:3]
         angs = np.concatenate((ang_ref, angs))
         tensoes = np.concatenate((tensoes_ref, tensoes))
         vet_estados_aux = np.concatenate((angs, tensoes))
@@ -388,8 +409,6 @@ class EESD():
 
                     no1 = self.nodes[barra+f'.{fase+1}']
                     Yline = self.Ybus[no1] / baseY
-                    if self.barras['nome_barra'][idx] == '675' and fase == 0:
-                        pass
                     
                     Gline = np.real(Yline).toarray()
                     Bline = np.imag(Yline).toarray()
