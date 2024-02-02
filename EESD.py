@@ -451,17 +451,72 @@ class EESD():
         angs = np.concatenate((angs, ang_ref))
         tensoes = np.concatenate((tensoes, tensoes_ref))
         vet_estados_aux = np.concatenate((angs, tensoes))
-        
+
         jac = Jacobiana(vet_estados_aux, self.baseva, self.barras, self.nodes, (len(fases)-3)*3)
-        
+                
         medida_atual = 0
+        count = 0
         for idx, medida in enumerate(self.barras['Inj_pot_at']):
             if type(medida) == np.ndarray and not self.barras['Geracao'][idx]:
-                medida_atual = jac.Derivadas_inj_pot_at(medida_atual, idx, self.DSSCircuit.NumBuses, self.Ybus, count)
-        
+                #medida_atual = jac.Derivadas_inj_pot_at(medida_atual, idx, self.DSSCircuit.NumBuses, self.Ybus, count)
+                fases_barra = self.barras['Fases'][idx]
+                fases = self.barras['Fases'].tolist()
+                fases = [sub_elem for elem in fases for sub_elem in elem]
+                index_fase = self.barras['Fases'].tolist()
+                index_fase = np.sum([len(elem) for elem in index_fase[:idx]])
+                barra = self.barras['nome_barra'][idx]
+                basekv = self.barras['Bases'][idx]
+                baseY = self.baseva / ((basekv*1000)**2)
+                
+                for i, fase in enumerate(fases_barra):
+                    no1 = self.nodes[barra+f'.{fase+1}']
+                    Yline = self.Ybus[no1, 3:] / baseY
+                    Yline2 = self.Ybus[no1, :3] / baseY
+                    Yline = np.concatenate([Yline.toarray(), Yline2.toarray()], axis=1)
+                    
+                    Gs = np.real(Yline)
+                    Bs = np.imag(Yline)
+                    diff_angs = angs[int(index_fase+i)]-angs
+                    delta_ang = (-Bs[0][int(index_fase+i)]*(tensoes[int(index_fase+i)]**2))-tensoes[int(index_fase+i)]*np.sum(tensoes*(Gs*np.sin(diff_angs)-Bs*np.cos(diff_angs)))
+                    Yline = self.Ybus[no1, 3:] / baseY
+                    
+                    Gs = np.real(Yline).toarray()
+                    Bs = np.imag(Yline).toarray()
+                    
+                    tensao_estimada = np.array([tensoes[int(index_fase+i)] for _ in range(len(fases)-3)])
+                    diff_angs = angs[int(index_fase+i)]-angs[:-3]
+                    delta_t = ((tensoes[int(index_fase+i)]**2)*Gs[0][int(index_fase+i)]+self.barras['Inj_pot_at_est'][idx][fase]) / tensoes[int(index_fase+i)]
+
+                    medida_atual = jac.teste_inj_pot_at(tensao_estimada, tensoes[:-3], Gs, Bs, diff_angs, medida_atual, delta_t, delta_ang, count)
+                    count += 1
+                    
+        count = 0       
         for idx, medida in enumerate(self.barras['Inj_pot_rat']):
             if type(medida) == np.ndarray and not self.barras['Geracao'][idx]:
-                medida_atual = jac.Derivadas_inj_pot_rat(medida_atual, idx, self.DSSCircuit.NumBuses, self.Ybus, count)
+                #medida_atual = jac.Derivadas_inj_pot_rat(medida_atual, idx, self.DSSCircuit.NumBuses, self.Ybus, count)
+                fases_barra = self.barras['Fases'][idx]
+                fases = self.barras['Fases'].tolist()
+                fases = [sub_elem for elem in fases for sub_elem in elem]
+                index_fase = self.barras['Fases'].tolist()
+                index_fase = np.sum([len(elem) for elem in index_fase[:idx]])
+                barra = self.barras['nome_barra'][idx]
+                basekv = self.barras['Bases'][idx]
+                baseY = self.baseva / ((basekv*1000)**2)
+                
+                for i, fase in enumerate(fases_barra):
+                    no1 = self.nodes[barra+f'.{fase+1}']
+                    Yline = self.Ybus[no1, 3:] / baseY
+                    
+                    Gs = np.real(Yline).toarray()
+                    Bs = np.imag(Yline).toarray()
+                    
+                    tensao_estimada = np.array([tensoes[int(index_fase+i)] for _ in range(len(fases)-3)])
+                    diff_angs = angs[int(index_fase+i)]-angs[:-3]
+                    delta_t = ((tensoes[int(index_fase+i)]**2)*(-Bs[0][int(index_fase+i)])+self.barras['Inj_pot_rat_est'][idx][fase]) / tensoes[int(index_fase+i)]
+                    delta_ang = -Gs[0][int(index_fase+i)]*tensoes[int(index_fase+i)]**2 + self.barras['Inj_pot_at_est'][idx][fase]
+
+                    medida_atual = jac.teste_inj_pot_rat(tensao_estimada, tensoes[:-3], Gs, Bs, diff_angs, medida_atual, delta_t, delta_ang, count)
+                    count += 1
                 
         for idx1, medida in enumerate(self.barras['Flux_pot_at']):
             if type(medida) == list:
@@ -479,8 +534,8 @@ class EESD():
                 
         for idx, medida in enumerate(self.barras['Tensao']):
             if type(medida) == np.ndarray and not self.barras['Geracao'][idx]:
-                medida_atual = jac.Derivadas_tensao(medida_atual, idx, self.DSSCircuit.NumBuses, count)
-            
+                medida_atual = jac.Derivadas_tensao(medida_atual, idx)
+
         return jac.jacobiana
 
     def run(self, max_error: float, max_iter: int) -> np.array:

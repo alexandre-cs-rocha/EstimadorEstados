@@ -15,7 +15,7 @@ class Jacobiana():
         lista_fase = self.barras['Fases'].tolist()
         index_fase = np.sum([len(elem) for elem in lista_fase[:index_barra]])
         basekv = self.barras['Bases'][index_barra]
-        baseY = self.baseva / ((basekv*1000)**2)        
+        baseY = self.baseva / ((basekv*1000)**2)
         
         for i, fase in enumerate(fases):
             no1 = self.nodes[barra1+f'.{fase+1}']
@@ -78,6 +78,8 @@ class Jacobiana():
                                     Gs = np.real(Yij)
                                     Bs = np.imag(Yij)
                                     delta2 += tensao_estimada2*(Gs*np.sin(ang_estimado-ang_estimado2)-Bs*np.cos(ang_estimado-ang_estimado2))
+                                    if index_barra == 5 and fase == 2:
+                                        print(tensao_estimada2, Gs) 
                         delta = delta - tensao_estimada*delta2
                     else:
                         tensao_estimada2 = self.vet_estados[int(len(self.vet_estados)//2+index_fase2+k)]
@@ -90,6 +92,19 @@ class Jacobiana():
             
         return medida_atual
             
+    def teste_inj_pot_at(self, tensao_estimada, tensao_estimada2, Gs, Bs, diff_angs, medida_atual, delta_t, delta_ang, count):
+        #Com relação as tensoes
+        d_tensoes = tensao_estimada * (Gs * np.cos(diff_angs) + Bs * np.sin(diff_angs))
+        d_tensoes[0][count] = delta_t
+
+        #Com relação aos angulos
+        d_angulos = tensao_estimada*tensao_estimada2*(Gs*np.sin(diff_angs)-Bs*np.cos(diff_angs))
+        d_angulos[0][count] = delta_ang
+        
+        self.jacobiana[medida_atual] = np.concatenate([d_angulos, d_tensoes], axis=1)
+        
+        return medida_atual+1
+    
     def Derivadas_inj_pot_rat(self, medida_atual: int, index_barra: int, num_buses: int, Ybus, count) -> int:
         barra1 = self.barras['nome_barra'][index_barra]
         fases = self.barras['Fases'][index_barra]
@@ -155,7 +170,20 @@ class Jacobiana():
                     
         return medida_atual
 
-    def Derivadas_tensao(self, medida_atual: int, index_barra: int, num_buses: int, count) -> int:   
+    def teste_inj_pot_rat(self, tensao_estimada, tensao_estimada2, Gs, Bs, diff_angs, medida_atual, delta_t, delta_ang, count):
+        #Com relação as tensoes
+        d_tensoes = tensao_estimada * (Gs * np.sin(diff_angs) - Bs * np.cos(diff_angs))
+        d_tensoes[0][count] = delta_t
+        
+        #Com relação aos angulos
+        d_angulos = -tensao_estimada*tensao_estimada2*(Gs*np.cos(diff_angs)+Bs*np.sin(diff_angs))
+        d_angulos[0][count] = delta_ang
+        
+        self.jacobiana[medida_atual] = np.concatenate([d_angulos, d_tensoes], axis=1)
+        
+        return medida_atual+1
+    
+    def Derivadas_tensao(self, medida_atual: int, index_barra: int) -> int:   
         fases = self.barras['Fases'][index_barra]
         index_fase = self.barras['Fases'].tolist()
         index_fase = np.sum([len(elem) for elem in index_fase[:index_barra]])
@@ -165,6 +193,9 @@ class Jacobiana():
             medida_atual += 1
         
         return medida_atual
+
+    def teste_tensao(self):
+        pass
 
     def Derivadas_fluxo_pot_at(self, jacobiana: np.array, fases: np.array, medida_atual: int, index_barra1: int, elemento: str,
                             barras: pd.DataFrame, nodes: dict, vet_estados: np.array, DSSCircuit, Ybus, baseva) -> int:
