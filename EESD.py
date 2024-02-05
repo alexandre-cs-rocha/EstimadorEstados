@@ -1,6 +1,10 @@
 import numpy as np
 import pandas as pd
 import scipy as sp
+import scipy.sparse as scsp
+
+import timeit
+import time
 
 from dss import DSS as dss_engine
 from Jacobiana import Jacobiana
@@ -17,8 +21,11 @@ class EESD():
         self.barras, self.num_medidas = self.medidas(self.baseva)
         self.vet_estados = self.iniciar_vet_estados()
         
-        Ybus = sp.sparse.csc_matrix(self.DSSObj.YMatrix.GetCompressedYMatrix())
+        Ybus = scsp.csr_matrix(self.DSSObj.YMatrix.GetCompressedYMatrix())
+        Ybus = scsp.lil_matrix(Ybus)
+        
         self.Ybus, self.nodes = self.organiza_Ybus(Ybus)
+        
         self.Ybus = self.Conserta_Ybus(self.Ybus)
 
     def resolve_fluxo_carga(self):
@@ -149,7 +156,7 @@ class EESD():
         
         return fases
 
-    def medidas(self, baseva: int) -> pd.DataFrame: 
+    def medidas(self, baseva: int) -> pd.DataFrame:
         barras = self.indexar_barras()
         
         num_medidas = 0
@@ -252,7 +259,7 @@ class EESD():
         nodes = {}
         for i, node in enumerate(self.DSSCircuit.YNodeOrder):
             nodes[node.lower()] = i
-        
+
         temp = Ybus.copy()
         count = 0
         for i, bus in enumerate(self.DSSCircuit.AllBusNames):
@@ -260,7 +267,7 @@ class EESD():
                 no = nodes[f'{bus}.{fase+1}']
                 temp[count] = Ybus[no].toarray()
                 count += 1
-            
+
         temp = temp.T
         Ybus_org = temp.copy()
         count = 0
@@ -269,8 +276,8 @@ class EESD():
                 no = nodes[f'{bus}.{fase+1}']
                 Ybus_org[count] = temp[no]
                 count += 1
-                
-        Ybus_org = sp.sparse.csc_matrix(Ybus_org)
+        #lil_matrix pode ser mais rápida para sistemas menores
+        Ybus_org = scsp.csr_matrix(Ybus_org)
         
         nodes = {}
         count = 0
@@ -455,13 +462,11 @@ class EESD():
         jac = Jacobiana(vet_estados_aux, self.baseva, self.barras, self.nodes, (len(fases)-3)*3)
                 
         medida_atual = 0
+        #Derivadas da inj_pot_at
         count = 0
         for idx, medida in enumerate(self.barras['Inj_pot_at']):
             if type(medida) == np.ndarray and not self.barras['Geracao'][idx]:
-                #medida_atual = jac.Derivadas_inj_pot_at(medida_atual, idx, self.DSSCircuit.NumBuses, self.Ybus, count)
                 fases_barra = self.barras['Fases'][idx]
-                fases = self.barras['Fases'].tolist()
-                fases = [sub_elem for elem in fases for sub_elem in elem]
                 index_fase = self.barras['Fases'].tolist()
                 index_fase = np.sum([len(elem) for elem in index_fase[:idx]])
                 barra = self.barras['nome_barra'][idx]
@@ -476,27 +481,20 @@ class EESD():
                     
                     Gs = np.real(Yline)
                     Bs = np.imag(Yline)
+                    
+                    tensao_estimada = tensoes[int(index_fase+i)]
                     diff_angs = angs[int(index_fase+i)]-angs
-                    delta_ang = (-Bs[0][int(index_fase+i)]*(tensoes[int(index_fase+i)]**2))-tensoes[int(index_fase+i)]*np.sum(tensoes*(Gs*np.sin(diff_angs)-Bs*np.cos(diff_angs)))
-                    Yline = self.Ybus[no1, 3:] / baseY
-                    
-                    Gs = np.real(Yline).toarray()
-                    Bs = np.imag(Yline).toarray()
-                    
-                    tensao_estimada = np.array([tensoes[int(index_fase+i)] for _ in range(len(fases)-3)])
-                    diff_angs = angs[int(index_fase+i)]-angs[:-3]
+                    delta_ang = (-Bs[0][int(index_fase+i)]*(tensao_estimada**2))-tensao_estimada*np.sum(tensoes*(Gs*np.sin(diff_angs)-Bs*np.cos(diff_angs)))
                     delta_t = ((tensoes[int(index_fase+i)]**2)*Gs[0][int(index_fase+i)]+self.barras['Inj_pot_at_est'][idx][fase]) / tensoes[int(index_fase+i)]
 
-                    medida_atual = jac.teste_inj_pot_at(tensao_estimada, tensoes[:-3], Gs, Bs, diff_angs, medida_atual, delta_t, delta_ang, count)
+                    medida_atual = jac.teste_inj_pot_at(tensao_estimada, tensoes, Gs, Bs, diff_angs, medida_atual, delta_t, delta_ang, count)
                     count += 1
                     
+        #Derivadas da inj_pot_rat
         count = 0       
         for idx, medida in enumerate(self.barras['Inj_pot_rat']):
             if type(medida) == np.ndarray and not self.barras['Geracao'][idx]:
-                #medida_atual = jac.Derivadas_inj_pot_rat(medida_atual, idx, self.DSSCircuit.NumBuses, self.Ybus, count)
                 fases_barra = self.barras['Fases'][idx]
-                fases = self.barras['Fases'].tolist()
-                fases = [sub_elem for elem in fases for sub_elem in elem]
                 index_fase = self.barras['Fases'].tolist()
                 index_fase = np.sum([len(elem) for elem in index_fase[:idx]])
                 barra = self.barras['nome_barra'][idx]
@@ -510,10 +508,10 @@ class EESD():
                     Gs = np.real(Yline).toarray()
                     Bs = np.imag(Yline).toarray()
                     
-                    tensao_estimada = np.array([tensoes[int(index_fase+i)] for _ in range(len(fases)-3)])
+                    tensao_estimada = tensoes[int(index_fase+i)]
                     diff_angs = angs[int(index_fase+i)]-angs[:-3]
-                    delta_t = ((tensoes[int(index_fase+i)]**2)*(-Bs[0][int(index_fase+i)])+self.barras['Inj_pot_rat_est'][idx][fase]) / tensoes[int(index_fase+i)]
-                    delta_ang = -Gs[0][int(index_fase+i)]*tensoes[int(index_fase+i)]**2 + self.barras['Inj_pot_at_est'][idx][fase]
+                    delta_t = ((tensao_estimada**2)*(-Bs[0][int(index_fase+i)])+self.barras['Inj_pot_rat_est'][idx][fase]) / tensao_estimada
+                    delta_ang = -Gs[0][int(index_fase+i)]*tensao_estimada**2 + self.barras['Inj_pot_at_est'][idx][fase]
 
                     medida_atual = jac.teste_inj_pot_rat(tensao_estimada, tensoes[:-3], Gs, Bs, diff_angs, medida_atual, delta_t, delta_ang, count)
                     count += 1
@@ -532,21 +530,26 @@ class EESD():
                 medida_atual = jac.Derivadas_fluxo_pot_rat(fases, medida_atual, idx1, elemento, self.barras, self.nodes, vet_estados_aux,
                                                     self.DSSCircuit, self.Ybus, self.baseva)
                 
-        for idx, medida in enumerate(self.barras['Tensao']):
-            if type(medida) == np.ndarray and not self.barras['Geracao'][idx]:
-                medida_atual = jac.Derivadas_tensao(medida_atual, idx)
+        d_tensao = jac.teste_tensao(fases)
 
-        return jac.jacobiana
+        jac.jac_teste = np.concatenate([jac.jac_teste[1:], d_tensao], axis=0)
+
+        return jac.jac_teste
 
     def run(self, max_error: float, max_iter: int) -> np.array:
+        self.matriz_pesos, self.dp = self.Calcula_pesos()
+        
         k = 0
         delx = 1
         while(np.max(np.abs(delx)) > max_error and max_iter > k):
-
+            inicio = time.time()
             self.residuo = self.Calcula_Residuo()
-
+            
             self.jacobiana = self.Calcula_Jacobiana()
             
+            self.matriz_pesos, self.dp = self.Calcula_pesos()
+            
+                        
             self.matriz_pesos, self.dp = self.Calcula_pesos()
             
             #Calcula a matriz ganho
@@ -559,7 +562,7 @@ class EESD():
             
             #Atualiza o vetor de estados
             self.vet_estados += delx
-            
+            fim = time.time()
             k += 1
-            print(k)
+            print(f'A iteração {k} levou {fim-inicio} segundos')
         return self.vet_estados
