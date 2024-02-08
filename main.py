@@ -18,8 +18,9 @@ def main():
     #Achar o path do script do OpenDSS
     path = Path(__file__)
     CurrentFolder = path.parent
-    MasterFile = CurrentFolder / 'objs' / '123Bus' / 'IEEE123Master.dss'
-
+    MasterFile = CurrentFolder / 'objs' / '4_SEAUA_1' / 'Master_DU01_20201246_4_SEAUA_1_NTMBSR1PVTTR.dss'
+    '4_SEAUA_1''Master_DU01_20201246_4_SEAUA_1_NTMBSR1PVTTR.dss'
+    'Sulgipe''Master_DU01_20201246_1_SEAUA_1_NTMBSR1PVTTR.dss'
     baseva =  33.3 * 10**6
 
     eesd = EESD.EESD(MasterFile, baseva)
@@ -32,8 +33,8 @@ def main():
     #eesd.vet_estados = gabarito.copy()
     vet_estados = eesd.run(10**-5, 100)
     
-    print(gabarito)
-    print(vet_estados)
+    '''print(gabarito)
+    print(vet_estados)'''
     
 if __name__ == '__main__':
     main()
