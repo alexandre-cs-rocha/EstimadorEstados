@@ -59,11 +59,12 @@ class EESD():
         count = 0
         for i, barra in enumerate(self.DSSCircuit.AllBusNames):
             self.DSSCircuit.SetActiveBus(barra)
+            print(self.DSSCircuit.Buses.AllPCEatBus, self.DSSCircuit.Buses.AllPDEatBus)
             for j, elem in enumerate(self.DSSCircuit.Buses.AllPCEatBus):
-                if 'Load' in elem or 'Generator' in elem or 'Vsource' in elem:
+                if 'Load' in elem or 'Generator' in elem or 'Vsource' in elem or 'PVSystem' in elem:
                     self.DSSText.Command = f'New Monitor.pqi{count} element={elem}, terminal=1, mode=1, ppolar=no'
                     count += 1
-            
+                    
             max_fases = 0
             elem = 'None'
             for pde in self.DSSCircuit.Buses.AllPDEatBus:
@@ -349,7 +350,26 @@ class EESD():
                 
             no1 = self.nodes[f"{barra_correspondente}.{min(fases_barra)}"]
             Ybus[no1:no1+len(fases_barra), no1:no1+len(fases_barra)] -= Yprim[:len(fases_barra), :len(fases_barra)]
-            self.DSSCircuit.Loads.Next
+            self.DSSCircuit.Generators.Next
+        
+        self.DSSCircuit.PVSystems.First
+        for _ in range(self.DSSCircuit.PVSystems.Count):
+            self.DSSCircuit.SetActiveElement(self.DSSCircuit.PVSystems.Name)
+            Yprim = self.DSSCircuit.ActiveCktElement.Yprim
+            real = Yprim[::2]
+            imag = Yprim[1::2]*1j
+            Yprim = real+imag
+            barra_correspondente = self.DSSCircuit.ActiveCktElement.BusNames[0].split('.')[0]
+            self.DSSCircuit.SetActiveBus(barra_correspondente)
+            fases_barra = self.DSSCircuit.ActiveBus.Nodes
+            fases = self.DSSCircuit.ActiveCktElement.NodeOrder - 1
+            Yprim = np.array(Yprim, dtype=np.complex128)
+            
+            Yprim = self.forma_matriz(fases, fases_barra, Yprim)
+                
+            no1 = self.nodes[f"{barra_correspondente}.{min(fases_barra)}"]
+            Ybus[no1:no1+len(fases_barra), no1:no1+len(fases_barra)] -= Yprim[:len(fases_barra), :len(fases_barra)]
+            self.DSSCircuit.PVSystems.Next
                 
         self.DSSCircuit.SetActiveElement('Vsource.source')
         Yprim = self.DSSCircuit.ActiveCktElement.Yprim
@@ -539,7 +559,6 @@ class EESD():
         delx = 1
         while(np.max(np.abs(delx)) > max_error and max_iter > k):
             inicio = time.time()
-            print('oi')
             self.residuo = self.Calcula_Residuo()
             
             self.jacobiana = self.Calcula_Jacobiana()

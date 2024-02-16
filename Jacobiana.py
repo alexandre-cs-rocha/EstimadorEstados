@@ -44,7 +44,6 @@ class Jacobiana():
         
         return d_total
         
-
     def Derivadas_fluxo_pot_at(self, jacobiana: np.array, fases: np.array, medida_atual: int, index_barra1: int, elemento: str,
                             barras: pd.DataFrame, nodes: dict, vet_estados: np.array, DSSCircuit, Ybus, baseva) -> int:
         barra1 = barras['nome_barra'][index_barra1]
