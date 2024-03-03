@@ -18,15 +18,15 @@ def main():
     #Achar o path do script do OpenDSS
     path = Path(__file__)
     CurrentFolder = path.parent
-    MasterFile = CurrentFolder / 'objs' / '34Bus' / 'ieee34Mod2_der.dss'
-    '4_SEAUA_1''Master_DU01_20201246_4_SEAUA_1_NTMBSR1PVTTR.dss'
+    MasterFile = CurrentFolder / 'objs' / '123Bus' / 'IEEE123Master.dss'
+    '4_SEEST_1''Master_DU01_20201246_4_SEEST_1_NTMBSR1PVTTR.dss'
     'Sulgipe''Master_DU01_20201246_1_SEAUA_1_NTMBSR1PVTTR.dss'
     baseva =  33.3 * 10**6
 
     eesd = EESD.EESD(MasterFile, baseva)
     
-    time = timeit.timeit(lambda: eesd.run(10**-5, 100), number=1)
-    print(time)
+    '''time = timeit.timeit(lambda: eesd.run(10**-5, 100), number=1)
+    print(time)'''
     
     gabarito = get_gabarito(eesd)
     

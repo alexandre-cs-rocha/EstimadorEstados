@@ -29,6 +29,7 @@ class EESD():
         self.Ybus, self.nodes = self.organiza_Ybus(Ybus)
 
         self.Ybus = self.Conserta_Ybus(self.Ybus)
+        
         print('Matriz de adimitância modificada com sucesso')
 
     def resolve_fluxo_carga(self):
@@ -59,7 +60,6 @@ class EESD():
         count = 0
         for i, barra in enumerate(self.DSSCircuit.AllBusNames):
             self.DSSCircuit.SetActiveBus(barra)
-            print(self.DSSCircuit.Buses.AllPCEatBus, self.DSSCircuit.Buses.AllPDEatBus)
             for j, elem in enumerate(self.DSSCircuit.Buses.AllPCEatBus):
                 if 'Load' in elem or 'Generator' in elem or 'Vsource' in elem or 'PVSystem' in elem:
                     self.DSSText.Command = f'New Monitor.pqi{count} element={elem}, terminal=1, mode=1, ppolar=no'
@@ -370,6 +370,25 @@ class EESD():
             no1 = self.nodes[f"{barra_correspondente}.{min(fases_barra)}"]
             Ybus[no1:no1+len(fases_barra), no1:no1+len(fases_barra)] -= Yprim[:len(fases_barra), :len(fases_barra)]
             self.DSSCircuit.PVSystems.Next
+            
+        self.DSSCircuit.Reactors.First
+        for _ in range(self.DSSCircuit.Reactors.Count):
+            self.DSSCircuit.SetActiveElement(self.DSSCircuit.Reactors.Name)
+            Yprim = self.DSSCircuit.ActiveCktElement.Yprim
+            real = Yprim[::2]
+            imag = Yprim[1::2]*1j
+            Yprim = real+imag
+            barra_correspondente = self.DSSCircuit.ActiveCktElement.BusNames[0].split('.')[0]
+            self.DSSCircuit.SetActiveBus(barra_correspondente)
+            fases_barra = self.DSSCircuit.ActiveBus.Nodes
+            fases = self.DSSCircuit.ActiveCktElement.NodeOrder - 1
+            Yprim = np.array(Yprim, dtype=np.complex128)
+            
+            Yprim = self.forma_matriz(fases, fases_barra, Yprim)
+                
+            no1 = self.nodes[f"{barra_correspondente}.{min(fases_barra)}"]
+            Ybus[no1:no1+len(fases_barra), no1:no1+len(fases_barra)] -= Yprim[:len(fases_barra), :len(fases_barra)]
+            self.DSSCircuit.Reactors.Next
                 
         self.DSSCircuit.SetActiveElement('Vsource.source')
         Yprim = self.DSSCircuit.ActiveCktElement.Yprim
@@ -476,7 +495,7 @@ class EESD():
         vet_estados_aux = np.concatenate((angs, tensoes))
 
         jac = Jacobiana(vet_estados_aux, self.baseva, self.barras, self.nodes, (len(fases)-3)*3)
-                
+
         medida_atual = 0
         #Derivadas da inj_pot_at
         count = 0
@@ -548,10 +567,10 @@ class EESD():
                 
         d_tensao = jac.teste_tensao(fases)
 
-        jac.jac_teste = np.concatenate([jac.jac_teste[1:], d_tensao], axis=0)
+        jac.jac_teste = scsp.vstack([jac.jac_teste[1:], d_tensao], format='csr')
 
         return jac.jac_teste
-
+    
     def run(self, max_error: float, max_iter: int) -> np.array:
         self.matriz_pesos, self.dp = self.Calcula_pesos()
         
@@ -560,22 +579,25 @@ class EESD():
         while(np.max(np.abs(delx)) > max_error and max_iter > k):
             inicio = time.time()
             self.residuo = self.Calcula_Residuo()
-            
+            print('Resíduos concluídos')
             self.jacobiana = self.Calcula_Jacobiana()
-            
+            print('Jacobiana concluída')
             self.matriz_pesos, self.dp = self.Calcula_pesos()
-            
+
             #Calcula a matriz ganho
+            
             matriz_ganho = self.jacobiana.T @ self.matriz_pesos @ self.jacobiana
             
             #Calcula o outro lado da Equação normal
             seinao = self.jacobiana.T @ self.matriz_pesos @ self.residuo
+            fim = time.time()
 
             delx = np.linalg.inv(matriz_ganho) @ seinao
             
             #Atualiza o vetor de estados
             self.vet_estados += delx
-            fim = time.time()
+            
             k += 1
             print(f'A iteração {k} levou {fim-inicio} segundos')
+            
         return self.vet_estados
