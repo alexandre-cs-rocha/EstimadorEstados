@@ -1,5 +1,6 @@
 import numpy as np
 import pandas as pd
+import scipy.sparse as sp
 
 class Jacobiana():
     def __init__(self, vet_estados: np.array, baseva: float, barras: pd.DataFrame, nodes: dict, num_medidas: int) -> None:
@@ -32,7 +33,7 @@ class Jacobiana():
         d_angulos = -tensao_estimada * tensao_estimada2 * (Gs * np.cos(diff_angs) + Bs * np.sin(diff_angs))
         d_angulos[0][count] = delta_ang
         
-        self.jac_teste = np.concatenate([self.jac_teste, np.concatenate([d_angulos, d_tensoes], axis=1)])
+        self.jac_teste = sp.vstack([self.jac_teste, np.concatenate([d_angulos, d_tensoes], axis=1)], format='csr')
 
         return medida_atual+1
 
