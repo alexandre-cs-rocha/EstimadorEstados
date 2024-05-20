@@ -29,6 +29,7 @@ class EESD():
         self.Ybus, self.nodes = self.organiza_Ybus(Ybus)
 
         self.Ybus = self.Conserta_Ybus(self.Ybus)
+        
         print('Matriz de adimitância modificada com sucesso')
 
     def resolve_fluxo_carga(self):
@@ -503,7 +504,6 @@ class EESD():
         vet_estados_aux = np.concatenate((angs, tensoes))
 
         jac = Jacobiana(vet_estados_aux, self.baseva, self.barras, self.nodes, (len(fases)-3)*3)
-        
         medida_atual = 0
         
         #Derivadas da inj_pot_at
@@ -572,10 +572,10 @@ class EESD():
                 
         d_tensao = jac.tensao(fases)
 
-        jac.jac_teste = np.concatenate([jac.jac_teste[1:], d_tensao], axis=0)
+        jac.jac_teste = scsp.vstack([jac.jac_teste[1:], d_tensao], format='csr').toarray()
 
         return jac.jac_teste
-
+    
     def run(self, max_error: float, max_iter: int) -> np.array:
         self.matriz_pesos, self.dp = self.Calcula_pesos()
         
@@ -584,22 +584,24 @@ class EESD():
         while(np.max(np.abs(delx)) > max_error and max_iter > k):
             inicio = time.time()
             self.residuo = self.Calcula_Residuo()
-            
+
             self.jacobiana = self.Calcula_Jacobiana()
-            
+
             self.matriz_pesos, self.dp = self.Calcula_pesos()
-            
+
             #Calcula a matriz ganho
             matriz_ganho = self.jacobiana.T @ self.matriz_pesos @ self.jacobiana
             
             #Calcula o outro lado da Equação normal
             seinao = self.jacobiana.T @ self.matriz_pesos @ self.residuo
+            fim = time.time()
 
             delx = np.linalg.inv(matriz_ganho) @ seinao
             
             #Atualiza o vetor de estados
             self.vet_estados += delx
-            fim = time.time()
+            
             k += 1
             print(f'A iteração {k} levou {fim-inicio} segundos')
+            
         return self.vet_estados
