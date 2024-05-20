@@ -59,7 +59,6 @@ class EESD():
         count = 0
         for i, barra in enumerate(self.DSSCircuit.AllBusNames):
             self.DSSCircuit.SetActiveBus(barra)
-            print(self.DSSCircuit.Buses.AllPCEatBus, self.DSSCircuit.Buses.AllPDEatBus)
             for j, elem in enumerate(self.DSSCircuit.Buses.AllPCEatBus):
                 if 'Load' in elem or 'Generator' in elem or 'Vsource' in elem or 'PVSystem' in elem:
                     self.DSSText.Command = f'New Monitor.pqi{count} element={elem}, terminal=1, mode=1, ppolar=no'
@@ -370,7 +369,26 @@ class EESD():
             no1 = self.nodes[f"{barra_correspondente}.{min(fases_barra)}"]
             Ybus[no1:no1+len(fases_barra), no1:no1+len(fases_barra)] -= Yprim[:len(fases_barra), :len(fases_barra)]
             self.DSSCircuit.PVSystems.Next
+            
+        self.DSSCircuit.Reactors.First
+        for _ in range(self.DSSCircuit.Reactors.Count):
+            self.DSSCircuit.SetActiveElement(self.DSSCircuit.Reactors.Name)
+            Yprim = self.DSSCircuit.ActiveCktElement.Yprim
+            real = Yprim[::2]
+            imag = Yprim[1::2]*1j
+            Yprim = real+imag
+            barra_correspondente = self.DSSCircuit.ActiveCktElement.BusNames[0].split('.')[0]
+            self.DSSCircuit.SetActiveBus(barra_correspondente)
+            fases_barra = self.DSSCircuit.ActiveBus.Nodes
+            fases = self.DSSCircuit.ActiveCktElement.NodeOrder - 1
+            Yprim = np.array(Yprim, dtype=np.complex128)
+            
+            Yprim = self.forma_matriz(fases, fases_barra, Yprim)
                 
+            no1 = self.nodes[f"{barra_correspondente}.{min(fases_barra)}"]
+            Ybus[no1:no1+len(fases_barra), no1:no1+len(fases_barra)] -= Yprim[:len(fases_barra), :len(fases_barra)]
+            self.DSSCircuit.Reactors.Next
+        
         self.DSSCircuit.SetActiveElement('Vsource.source')
         Yprim = self.DSSCircuit.ActiveCktElement.Yprim
         real = Yprim[::2]
@@ -378,8 +396,19 @@ class EESD():
         Yprim = real+imag
         Yprim = np.reshape(Yprim, (6, 6))
         Ybus[:3, :3] -= Yprim[:3, :3]
-
-        return Ybus
+        
+        basesY = np.array(self.baseva / ((self.barras['Bases']*1000) ** 2))
+        basesY = np.concatenate([[basesY[-1]], basesY[:-1]])
+        
+        YbusPU = Ybus[:, :]
+        
+        linha = 0
+        for baseY, fases in zip(basesY, self.barras['Fases']):
+            for fase in fases:
+                YbusPU[linha] = Ybus[linha] / baseY
+                linha += 1
+        
+        return YbusPU
 
     def Calcula_pesos(self) -> tuple:
         inj_pot_at = []
@@ -397,8 +426,8 @@ class EESD():
         dp[dp == 0] = 10**-5
         pesos = dp**-2
         pesos[pesos > 10**10] = 10**10
-            
-        matriz_pesos = np.diag(pesos)
+        matriz_pesos = scsp.lil_matrix((len(pesos), len(pesos)))
+        matriz_pesos.setdiag(pesos)
         
         return matriz_pesos, np.abs(dp)
     
@@ -423,8 +452,6 @@ class EESD():
                 index_fase = self.barras['Fases'].tolist()
                 index_fase = np.sum([len(elem) for elem in index_fase[:idx]])
                 barra = self.barras['nome_barra'][idx]
-                basekv = self.barras['Bases'][idx]
-                baseY = self.baseva / ((basekv*1000)**2)
             
                 for i, fase in enumerate(fases):
                     tensao_estimada = tensoes[int(3+index_fase+i)]
@@ -433,7 +460,7 @@ class EESD():
                     diff_angulos = ang_estimado - angs.copy()
 
                     no1 = self.nodes[barra+f'.{fase+1}']
-                    Yline = self.Ybus[no1] / baseY
+                    Yline = self.Ybus[no1]
                     
                     Gline = np.real(Yline).toarray()
                     Bline = np.imag(Yline).toarray()
@@ -476,8 +503,9 @@ class EESD():
         vet_estados_aux = np.concatenate((angs, tensoes))
 
         jac = Jacobiana(vet_estados_aux, self.baseva, self.barras, self.nodes, (len(fases)-3)*3)
-                
+        
         medida_atual = 0
+        
         #Derivadas da inj_pot_at
         count = 0
         for idx, medida in enumerate(self.barras['Inj_pot_at']):
@@ -486,13 +514,11 @@ class EESD():
                 index_fase = self.barras['Fases'].tolist()
                 index_fase = np.sum([len(elem) for elem in index_fase[:idx]])
                 barra = self.barras['nome_barra'][idx]
-                basekv = self.barras['Bases'][idx]
-                baseY = self.baseva / ((basekv*1000)**2)
                 
                 for i, fase in enumerate(fases_barra):
                     no1 = self.nodes[barra+f'.{fase+1}']
-                    Yline = self.Ybus[no1, 3:] / baseY
-                    Yline2 = self.Ybus[no1, :3] / baseY
+                    Yline = self.Ybus[no1, 3:]
+                    Yline2 = self.Ybus[no1, :3]
                     Yline = np.concatenate([Yline.toarray(), Yline2.toarray()], axis=1)
                     
                     Gs = np.real(Yline)
@@ -503,7 +529,7 @@ class EESD():
                     delta_ang = (-Bs[0][int(index_fase+i)]*(tensao_estimada**2))-tensao_estimada*np.sum(tensoes*(Gs*np.sin(diff_angs)-Bs*np.cos(diff_angs)))
                     delta_t = ((tensoes[int(index_fase+i)]**2)*Gs[0][int(index_fase+i)]+self.barras['Inj_pot_at_est'][idx][fase]) / tensoes[int(index_fase+i)]
 
-                    medida_atual = jac.teste_inj_pot_at(tensao_estimada, tensoes, Gs, Bs, diff_angs, medida_atual, delta_t, delta_ang, count)
+                    medida_atual = jac.inj_pot_at(tensao_estimada, tensoes, Gs, Bs, diff_angs, medida_atual, delta_t, delta_ang, count)
                     count += 1
                     
         #Derivadas da inj_pot_rat
@@ -514,12 +540,10 @@ class EESD():
                 index_fase = self.barras['Fases'].tolist()
                 index_fase = np.sum([len(elem) for elem in index_fase[:idx]])
                 barra = self.barras['nome_barra'][idx]
-                basekv = self.barras['Bases'][idx]
-                baseY = self.baseva / ((basekv*1000)**2)
                 
                 for i, fase in enumerate(fases_barra):
                     no1 = self.nodes[barra+f'.{fase+1}']
-                    Yline = self.Ybus[no1, 3:] / baseY
+                    Yline = self.Ybus[no1, 3:]
                     
                     Gs = np.real(Yline).toarray()
                     Bs = np.imag(Yline).toarray()
@@ -529,7 +553,7 @@ class EESD():
                     delta_t = ((tensao_estimada**2)*(-Bs[0][int(index_fase+i)])+self.barras['Inj_pot_rat_est'][idx][fase]) / tensao_estimada
                     delta_ang = -Gs[0][int(index_fase+i)]*tensao_estimada**2 + self.barras['Inj_pot_at_est'][idx][fase]
 
-                    medida_atual = jac.teste_inj_pot_rat(tensao_estimada, tensoes[:-3], Gs, Bs, diff_angs, medida_atual, delta_t, delta_ang, count)
+                    medida_atual = jac.inj_pot_rat(tensao_estimada, tensoes[:-3], Gs, Bs, diff_angs, medida_atual, delta_t, delta_ang, count)
                     count += 1
                 
         for idx1, medida in enumerate(self.barras['Flux_pot_at']):
@@ -546,7 +570,7 @@ class EESD():
                 medida_atual = jac.Derivadas_fluxo_pot_rat(fases, medida_atual, idx1, elemento, self.barras, self.nodes, vet_estados_aux,
                                                     self.DSSCircuit, self.Ybus, self.baseva)
                 
-        d_tensao = jac.teste_tensao(fases)
+        d_tensao = jac.tensao(fases)
 
         jac.jac_teste = np.concatenate([jac.jac_teste[1:], d_tensao], axis=0)
 

@@ -10,33 +10,33 @@ class Jacobiana():
         self.barras = barras
         self.nodes = nodes
             
-    def teste_inj_pot_at(self, tensao_estimada, tensao_estimada2, Gs, Bs, diff_angs, medida_atual, delta_t, delta_ang, count):
+    def inj_pot_at(self, tensao_estimada, tensao_estimada2, Gs, Bs, diff_angs, medida_atual, delta_t, delta_ang, count):
         #Com relação as tensoes
         d_tensoes = tensao_estimada * (Gs * np.cos(diff_angs) + Bs * np.sin(diff_angs))
         d_tensoes[0][count] = delta_t
 
         #Com relação aos angulos
-        d_angulos = tensao_estimada*tensao_estimada2*(Gs*np.sin(diff_angs)-Bs*np.cos(diff_angs))
+        d_angulos = tensao_estimada * tensao_estimada2 * (Gs * np.sin(diff_angs) - Bs * np.cos(diff_angs))
         d_angulos[0][count] = delta_ang
         
         self.jac_teste = np.concatenate([self.jac_teste, np.concatenate([d_angulos[:,:-3], d_tensoes[:,:-3]], axis=1)])
         
         return medida_atual+1
 
-    def teste_inj_pot_rat(self, tensao_estimada, tensao_estimada2, Gs, Bs, diff_angs, medida_atual, delta_t, delta_ang, count):
+    def inj_pot_rat(self, tensao_estimada, tensao_estimada2, Gs, Bs, diff_angs, medida_atual, delta_t, delta_ang, count):
         #Com relação as tensoes
         d_tensoes = tensao_estimada * (Gs * np.sin(diff_angs) - Bs * np.cos(diff_angs))
         d_tensoes[0][count] = delta_t
         
         #Com relação aos angulos
-        d_angulos = -tensao_estimada*tensao_estimada2*(Gs*np.cos(diff_angs)+Bs*np.sin(diff_angs))
+        d_angulos = -tensao_estimada * tensao_estimada2 * (Gs * np.cos(diff_angs) + Bs * np.sin(diff_angs))
         d_angulos[0][count] = delta_ang
         
         self.jac_teste = np.concatenate([self.jac_teste, np.concatenate([d_angulos, d_tensoes], axis=1)])
 
         return medida_atual+1
 
-    def teste_tensao(self, fases_barra: list):
+    def tensao(self, fases_barra: list):
         diag = [1 for _ in range(len(fases_barra)-3)]
         d_tensoes = np.diag(diag)
         d_angs = np.zeros((len(fases_barra)-3, len(fases_barra)-3))
