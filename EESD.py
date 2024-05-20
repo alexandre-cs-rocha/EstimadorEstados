@@ -504,6 +504,7 @@ class EESD():
         vet_estados_aux = np.concatenate((angs, tensoes))
 
         jac = Jacobiana(vet_estados_aux, self.baseva, self.barras, self.nodes, (len(fases)-3)*3)
+
         medida_atual = 0
         
         #Derivadas da inj_pot_at
