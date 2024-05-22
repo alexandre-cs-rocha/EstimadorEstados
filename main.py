@@ -18,7 +18,7 @@ def main():
     #Achar o path do script do OpenDSS
     path = Path(__file__)
     CurrentFolder = path.parent
-    MasterFile = CurrentFolder / 'objs' / '123Bus' / 'IEEE123Master.dss'
+    MasterFile = CurrentFolder / 'objs' / '13Bus' / 'IEEE13Nodeckt.dss'
     '4_SEAUA_1''Master_DU01_20201246_4_SEAUA_1_NTMBSR1PVTTR.dss'
     'Sulgipe''Master_DU01_20201246_1_SEAUA_1_NTMBSR1PVTTR.dss'
     
@@ -28,7 +28,7 @@ def main():
     
     '''time = timeit.timeit(lambda: eesd.run(10**-5, 100), number=1)
     print(time)'''
-    
+
     gabarito = get_gabarito(eesd)
     
     #eesd.vet_estados = gabarito.copy()
