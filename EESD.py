@@ -10,7 +10,7 @@ from Jacobiana import Jacobiana
 from Residuos import Residuo
 
 class EESD():
-    def __init__(self, master_path, baseva: float = 10**6) -> None:
+    def __init__(self, master_path, baseva: float = 10**6, verbose: bool = False) -> None:
         self.DSSCircuit, self.DSSText, self.DSSObj, self.DSSMonitors = self.InitializeDSS()
         self.baseva = baseva
         self.MasterFile = master_path
@@ -104,8 +104,6 @@ class EESD():
         geracao = np.concatenate([geracao[1:], [geracao[0]]])
 
         idx = [i for i in range(len(nomes))]
-        inicial1 = [[0, 0, 0, 0] for _ in range(len(nomes))]
-        inicial2 = [[0, 0, 0, 0] for _ in range(len(nomes))]
         
         barras = pd.DataFrame(columns=['nome_barra', 'Bases', 'Fases', 'Inj_pot_at', 'Inj_pot_rat', 'Flux_pot_at', 'Flux_pot_rat', 'Tensao', 'Inj_pot_at_est', 'Inj_pot_rat_est', 'Geracao'],
                             index=idx)
@@ -113,10 +111,6 @@ class EESD():
         barras['nome_barra'] = nomes
         barras.loc[idx, 'Bases'] = bases
         barras.loc[idx, 'Geracao'] = geracao
-        
-        for i in idx:
-            barras['Inj_pot_at_est'][i] = inicial1[i]
-            barras['Inj_pot_rat_est'][i] = inicial2[i]
 
         return barras
 
@@ -429,9 +423,9 @@ class EESD():
         matriz_pesos = scsp.lil_matrix((len(pesos), len(pesos)))
         matriz_pesos.setdiag(pesos)
         
-        return matriz_pesos, np.abs(dp)
+        return scsp.csr_matrix(matriz_pesos), np.abs(dp)
     
-    def Calcula_Residuo(self) -> np.array:
+    def Calcula_Residuo(self) -> np.ndarray:
         count = self.barras['Geracao'].value_counts()[1]
         fases = self.barras['Fases'].tolist()
         fases = [sub_elem for elem in fases for sub_elem in elem]
@@ -442,41 +436,17 @@ class EESD():
         tensoes_ref = self.barras['Tensao'][self.DSSCircuit.NumBuses-1][:3]
         angs = np.concatenate((ang_ref, angs))
         tensoes = np.concatenate((tensoes_ref, tensoes))
-        vet_estados_aux = np.concatenate((angs, tensoes))
         
-        residuo = Residuo(self.barras)
+        residuo = Residuo(self.barras, tensoes, angs)
         
-        for idx, geracao in enumerate(self.barras['Geracao']):
-            if not geracao:
-                fases = self.barras['Fases'][idx]
-                index_fase = self.barras['Fases'].tolist()
-                index_fase = np.sum([len(elem) for elem in index_fase[:idx]])
-                barra = self.barras['nome_barra'][idx]
-            
-                for i, fase in enumerate(fases):
-                    tensao_estimada = tensoes[int(3+index_fase+i)]
-                    ang_estimado = angs[int(3+index_fase+i)]
-                    
-                    diff_angulos = ang_estimado - angs.copy()
-
-                    no1 = self.nodes[barra+f'.{fase+1}']
-                    Yline = self.Ybus[no1]
-                    
-                    Gline = np.real(Yline).toarray()
-                    Bline = np.imag(Yline).toarray()
-
-                    residuo.Residuo_inj_pot_at(idx, fase, tensao_estimada, tensoes, diff_angulos, Gline, Bline)
-
-                    residuo.Residuo_inj_pot_rat(idx, fase, tensao_estimada, tensoes, diff_angulos, Gline, Bline)
-                    
-                    residuo.Residuo_tensao(idx, fase, tensao_estimada)
+        residuos = residuo.calc_res(np.real(self.Ybus).toarray(), np.imag(self.Ybus).toarray())
         
         self.inj_pot_at_est = np.array(residuo.inj_pot_at_est)
         self.inj_pot_rat_est = np.array(residuo.inj_pot_rat_est)
-          
-        return np.concatenate([residuo.vet_inj_at, residuo.vet_inj_rat, residuo.vet_tensao])
 
-    def Calcula_Jacobiana(self) -> np.array:
+        return residuos
+
+    def Calcula_Jacobiana(self) -> np.ndarray:
         count = self.barras['Geracao'].value_counts()[1]
         fases = self.barras['Fases'].tolist()
         fases = [sub_elem for elem in fases for sub_elem in elem]
@@ -487,16 +457,16 @@ class EESD():
         tensoes_ref = self.barras['Tensao'][self.DSSCircuit.NumBuses-1][:3]
         angs = np.concatenate((angs, ang_ref))
         tensoes = np.concatenate((tensoes, tensoes_ref))
-        vet_estados_aux = np.concatenate((angs, tensoes))
 
-        jac = Jacobiana(vet_estados_aux, self.barras, tensoes, angs, fases)
+        jac = Jacobiana(tensoes, angs, fases)
                 
         jacobiana = jac.derivadas(np.real(self.Ybus).toarray(), np.imag(self.Ybus).toarray(), 
                                   self.inj_pot_at_est, self.inj_pot_rat_est)
         
-        return jacobiana
+        return scsp.csr_matrix(jacobiana)
     
     def run(self, max_error: float, max_iter: int) -> np.array:
+        verbose = False
         self.matriz_pesos, self.dp = self.Calcula_pesos()
         
         k = 0
@@ -505,10 +475,13 @@ class EESD():
             inicio = time.time()
 
             self.residuo = self.Calcula_Residuo()
+            fim_res = time.time()
 
             self.jacobiana = self.Calcula_Jacobiana()
+            fim_jac = time.time()
 
             self.matriz_pesos, self.dp = self.Calcula_pesos()
+            fim_pesos = time.time()
 
             #Calcula a matriz ganho
             matriz_ganho = self.jacobiana.T @ self.matriz_pesos @ self.jacobiana
@@ -516,13 +489,18 @@ class EESD():
             #Calcula o outro lado da Equação normal
             seinao = self.jacobiana.T @ self.matriz_pesos @ self.residuo
 
-            delx = np.linalg.inv(matriz_ganho) @ seinao
+            delx = np.linalg.inv(matriz_ganho.toarray()) @ seinao
             
             #Atualiza o vetor de estados
             self.vet_estados += delx
             fim = time.time()
             
             k += 1
-            print(f'A iteração {k} levou {fim-inicio} segundos')
-            
+            if verbose:
+                print(f'Os resíduos da iteração {k} levaram {fim_res-inicio:.3f}s')
+                print(f'A jacobiana da iteração {k} levou {fim_jac-fim_res:.3f}s')
+                print(f'Os pesos da iteração {k} levaram {fim_pesos-fim_jac:.3f}s')
+                print(f'Atualizar o vetor de estados da iteração {k} levou {fim-fim_pesos:.3f}')
+                print(f'A iteração {k} levou {fim-inicio:.3f}s')
+
         return self.vet_estados

@@ -1,6 +1,6 @@
 from pathlib import Path
 import numpy as np
-import timeit
+import time
 import EESD
 
 
@@ -18,24 +18,26 @@ def main():
     #Achar o path do script do OpenDSS
     path = Path(__file__)
     CurrentFolder = path.parent
-    MasterFile = CurrentFolder / 'objs' / '13Bus' / 'IEEE13Nodeckt.dss'
+    MasterFile = CurrentFolder / 'objs' / '123Bus' / 'IEEE123Master.dss'
     '4_SEAUA_1''Master_DU01_20201246_4_SEAUA_1_NTMBSR1PVTTR.dss'
     'Sulgipe''Master_DU01_20201246_1_SEAUA_1_NTMBSR1PVTTR.dss'
     
+    verbose = False
+    
     baseva =  33.3 * 10**6
 
-    eesd = EESD.EESD(MasterFile, baseva)
+    eesd = EESD.EESD(MasterFile, baseva, verbose)
     
-    '''time = timeit.timeit(lambda: eesd.run(10**-5, 100), number=1)
-    print(time)'''
+    inicio = time.time()
+    vet_estados = eesd.run(10**-5, 100)
+    fim = time.time()
+    print(f'Estimador concluido em {fim-inicio}s')
 
     gabarito = get_gabarito(eesd)
     
-    #eesd.vet_estados = gabarito.copy()
-    vet_estados = eesd.run(10**-5, 100)
-    
-    print(gabarito)
-    print(vet_estados)
+    if verbose:
+        print(gabarito)
+        print(vet_estados)
     
 if __name__ == '__main__':
     main()

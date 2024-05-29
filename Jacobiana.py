@@ -3,9 +3,7 @@ import pandas as pd
 import scipy.sparse as sp
 
 class Jacobiana():
-    def __init__(self, vet_estados: np.ndarray, barras: pd.DataFrame, tensoes: np.ndarray, angs: np.ndarray, fases: list) -> None:
-        self.vet_estados = vet_estados
-        self.barras = barras
+    def __init__(self, tensoes: np.ndarray, angs: np.ndarray, fases: list) -> None:
         self.tensoes = tensoes
         self.angs = angs
         self.fases = fases
