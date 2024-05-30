@@ -14,6 +14,7 @@ class EESD():
         self.DSSCircuit, self.DSSText, self.DSSObj, self.DSSMonitors = self.InitializeDSS()
         self.baseva = baseva
         self.MasterFile = master_path
+        self.verbose = verbose
         
         self.resolve_fluxo_carga()
         print('Acabou o fluxo de carga')
@@ -160,10 +161,10 @@ class EESD():
         for idx, bus in enumerate(barras['nome_barra']):
             self.DSSCircuit.SetActiveBus(bus)
             fases = self.pegar_fases()
-            barras['Fases'][idx] = fases
+            barras.loc[[idx], 'Fases'] = pd.Series([fases], index=barras.index[[idx]])
             if not barras['Geracao'][idx]:
-                barras['Inj_pot_at'][idx] = np.array([0, 0, 0, 0], dtype=np.float64)
-                barras['Inj_pot_rat'][idx] = np.array([0, 0, 0, 0], dtype=np.float64)
+                barras.loc[[idx], 'Inj_pot_at'] = pd.Series([[0, 0, 0, 0]], index=barras.index[[idx]])
+                barras.loc[[idx], 'Inj_pot_rat'] = pd.Series([[0, 0, 0, 0]], index=barras.index[[idx]])
                 num_medidas += len(fases)*2
         
         #Amostra e salva os valores dos medidores do sistema
@@ -207,8 +208,8 @@ class EESD():
                     medidas_at[fase] = matriz_medidas[i*2]
                     medidas_rat[fase] = matriz_medidas[i*2+1]
                     
-                barras['Inj_pot_at'][index_barra] += -medidas_at*1000 / baseva
-                barras['Inj_pot_rat'][index_barra] += -medidas_rat*1000 / baseva
+                barras.loc[[index_barra], 'Inj_pot_at'] += pd.Series([-medidas_at*1000 / baseva], index=barras.index[[index_barra]])
+                barras.loc[[index_barra], 'Inj_pot_rat'] += pd.Series([-medidas_rat*1000 / baseva], index=barras.index[[index_barra]])
                 
             elif 'v' in self.DSSMonitors.Name:
                 if type(barras['Tensao'][index_barra]) != np.ndarray:
@@ -218,7 +219,7 @@ class EESD():
                         medidas[fase] = matriz_medidas[i]
 
                     basekv = self.DSSCircuit.Buses.kVBase
-                    barras['Tensao'][index_barra] = medidas / (basekv*1000)
+                    barras.loc[[index_barra], 'Tensao'] = pd.Series([medidas / (basekv*1000)], index=barras.index[[index_barra]])
                     if not barras['Geracao'][index_barra]:
                         num_medidas += len(fases)
             
@@ -268,8 +269,8 @@ class EESD():
                 no = nodes[f'{bus}.{fase+1}']
                 Ybus_org[count] = temp[no]
                 count += 1
-        #lil_matrix pode ser mais rápida para sistemas menores
-        Ybus_org = scsp.csr_matrix(Ybus_org)
+        #csr_matrix pode ser mais rápida para sistemas maiores
+        Ybus_org = scsp.lil_matrix(Ybus_org)
         
         nodes = {}
         count = 0
@@ -426,7 +427,7 @@ class EESD():
         return scsp.csr_matrix(matriz_pesos), np.abs(dp)
     
     def Calcula_Residuo(self) -> np.ndarray:
-        count = self.barras['Geracao'].value_counts()[1]
+        count = self.barras['Geracao'].value_counts().iloc[1]
         fases = self.barras['Fases'].tolist()
         fases = [sub_elem for elem in fases for sub_elem in elem]
         
@@ -447,7 +448,7 @@ class EESD():
         return residuos
 
     def Calcula_Jacobiana(self) -> np.ndarray:
-        count = self.barras['Geracao'].value_counts()[1]
+        count = self.barras['Geracao'].value_counts().iloc[1]
         fases = self.barras['Fases'].tolist()
         fases = [sub_elem for elem in fases for sub_elem in elem]
         
@@ -466,7 +467,6 @@ class EESD():
         return scsp.csr_matrix(jacobiana)
     
     def run(self, max_error: float, max_iter: int) -> np.array:
-        verbose = False
         self.matriz_pesos, self.dp = self.Calcula_pesos()
         
         k = 0
@@ -496,7 +496,7 @@ class EESD():
             fim = time.time()
             
             k += 1
-            if verbose:
+            if self.verbose:
                 print(f'Os resíduos da iteração {k} levaram {fim_res-inicio:.3f}s')
                 print(f'A jacobiana da iteração {k} levou {fim_jac-fim_res:.3f}s')
                 print(f'Os pesos da iteração {k} levaram {fim_pesos-fim_jac:.3f}s')
