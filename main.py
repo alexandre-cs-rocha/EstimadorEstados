@@ -19,22 +19,24 @@ def main():
     path = Path(__file__)
     CurrentFolder = path.parent
     MasterFile = CurrentFolder / 'objs' / '123Bus' / 'IEEE123Master.dss'
+    '8500-Node''Master.dss'
     '4_SEAUA_1''Master_DU01_20201246_4_SEAUA_1_NTMBSR1PVTTR.dss'
     'Sulgipe''Master_DU01_20201246_1_SEAUA_1_NTMBSR1PVTTR.dss'
     
-    verbose = False
+    verbose = True
     
     baseva =  33.3 * 10**6
 
     eesd = EESD.EESD(MasterFile, baseva, verbose)
     
+    gabarito = get_gabarito(eesd)
+    #eesd.vet_estados = gabarito
+    
     inicio = time.time()
-    vet_estados = eesd.run(10**-5, 100)
+    vet_estados = eesd.run(1e-4, 100)
     fim = time.time()
     print(f'Estimador concluido em {fim-inicio}s')
 
-    gabarito = get_gabarito(eesd)
-    
     if verbose:
         print(gabarito)
         print(vet_estados)

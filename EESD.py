@@ -290,14 +290,16 @@ class EESD():
             barras_conectadas = self.DSSCircuit.ActiveCktElement.BusNames
             self.DSSCircuit.SetActiveBus(barras_conectadas[0])
             basekv1 = self.DSSCircuit.Buses.kVBase
+            node1 = self.DSSCircuit.Buses.Nodes[0]
             self.DSSCircuit.SetActiveBus(barras_conectadas[1])
             basekv2 = self.DSSCircuit.Buses.kVBase
+            node2 = self.DSSCircuit.Buses.Nodes[0]
             if '.' in barras_conectadas[0] or '.' in barras_conectadas[1]:
                 barras_conectadas[0] = barras_conectadas[0].split('.')[0]
                 barras_conectadas[1] = barras_conectadas[1].split('.')[0]
                 
-            no1 = self.nodes[f"{barras_conectadas[0]}.{1}"]
-            no2 = self.nodes[f"{barras_conectadas[1]}.{1}"]
+            no1 = self.nodes[f"{barras_conectadas[0]}.{node1}"]
+            no2 = self.nodes[f"{barras_conectadas[1]}.{node2}"]
             
             if basekv1 > basekv2:
                 n = basekv1 / basekv2
@@ -467,6 +469,10 @@ class EESD():
         return scsp.csr_matrix(jacobiana)
     
     def run(self, max_error: float, max_iter: int) -> np.array:
+        self.barras, self.num_medidas = self.medidas(self.baseva)
+        self.vet_estados = self.iniciar_vet_estados()
+        if self.verbose: print('Vetor de estados iniciado')
+        
         self.matriz_pesos, self.dp = self.Calcula_pesos()
         
         k = 0
