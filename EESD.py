@@ -3,6 +3,7 @@ import pandas as pd
 import scipy as sp
 import scipy.sparse as scsp
 from scipy.sparse.linalg import inv
+from scipy.linalg import lu_factor, lu_solve
 
 import time
 
@@ -100,12 +101,15 @@ class EESD():
         bases = []
         geracao = []
         for barra in self.DSSCircuit.AllBusNames:
-            #if barra.isdigit(): è possível que o sourcebus e o reg não entrem para a EE
+            #if barra.isdigit(): é possível que o sourcebus e o reg não entrem para a EE
             self.DSSCircuit.SetActiveBus(barra)
+            
             #Base é em fase-neutro
             base = self.DSSCircuit.Buses.kVBase
+            
             if base == 0:
                 raise ValueError('Tensão base não pode ser 0')
+            
             nomes.append(barra)
             bases.append(base)
             geracao.append(self.DSSCircuit.Buses.AllPCEatBus[0] == 'Vsource.source')
@@ -284,18 +288,21 @@ class EESD():
             trafo = self.DSSCircuit.Transformers.Name
             self.DSSCircuit.SetActiveElement(trafo)
             num_phases = self.DSSCircuit.ActiveCktElement.NumPhases
+            
             barras_conectadas = self.DSSCircuit.ActiveCktElement.BusNames
-            self.DSSCircuit.SetActiveBus(barras_conectadas[0])
-            basekv1 = self.DSSCircuit.Buses.kVBase
-            self.DSSCircuit.SetActiveBus(barras_conectadas[1])
-            basekv2 = self.DSSCircuit.Buses.kVBase
+            
             if '.' in barras_conectadas[0] or '.' in barras_conectadas[1]:
                 barras_conectadas[0] = barras_conectadas[0].split('.')[0]
                 barras_conectadas[1] = barras_conectadas[1].split('.')[0]
-                
-            no1 = self.nodes[f"{barras_conectadas[0]}.{1}"]
-            no2 = self.nodes[f"{barras_conectadas[1]}.{1}"]
             
+            self.DSSCircuit.SetActiveBus(barras_conectadas[0])
+            basekv1 = self.DSSCircuit.Buses.kVBase
+            no1 = self.nodes[f"{barras_conectadas[0]}.{self.DSSCircuit.Buses.Nodes[0]}"]
+            
+            self.DSSCircuit.SetActiveBus(barras_conectadas[1])
+            basekv2 = self.DSSCircuit.Buses.kVBase
+            no2 = self.nodes[f"{barras_conectadas[1]}.{self.DSSCircuit.Buses.Nodes[0]}"]
+                
             if basekv1 > basekv2:
                 n = basekv1 / basekv2
                 Ybus[no1:no1+num_phases, no2:no2+num_phases] = (Ybus[no1:no1+num_phases, no2:no2+num_phases])/n
@@ -420,8 +427,7 @@ class EESD():
         dp[dp == 0] = 10**-5
         pesos = dp**-2
         pesos[pesos > 10**10] = 10**10
-        matriz_pesos = scsp.lil_matrix((len(pesos), len(pesos)))
-        matriz_pesos.setdiag(pesos)
+        matriz_pesos = np.diag(pesos)
         
         return scsp.csr_matrix(matriz_pesos), np.abs(dp)
     
@@ -481,13 +487,17 @@ class EESD():
             self.matriz_pesos, self.dp = self.Calcula_pesos()
             fim_pesos = time.time()
 
+            jac_transposta = self.jacobiana.T
+
             #Calcula a matriz ganho
-            matriz_ganho = self.jacobiana.T @ self.matriz_pesos @ self.jacobiana
+            matriz_ganho = jac_transposta @ self.matriz_pesos @ self.jacobiana
             
             #Calcula o outro lado da Equação normal
-            seinao = self.jacobiana.T @ self.matriz_pesos @ self.residuo
+            b = jac_transposta @ self.matriz_pesos @ self.residuo
+            
+            lup = lu_factor(matriz_ganho.toarray())
 
-            delx = np.linalg.inv(matriz_ganho.toarray()) @ seinao
+            delx = lu_solve(lup, b)
             
             #Atualiza o vetor de estados
             self.vet_estados += delx

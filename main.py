@@ -18,7 +18,8 @@ def main():
     #Achar o path do script do OpenDSS
     path = Path(__file__)
     CurrentFolder = path.parent
-    MasterFile = CurrentFolder / 'objs' / '13Bus' / 'IEEE13Nodeckt.dss'
+    MasterFile = CurrentFolder / 'objs' / '123Bus' / 'IEEE123Master.dss'
+    '123Bus''IEEE123Master.dss'
     '8500-Node''Master.dss'
     '4_SEAUA_1''Master_DU01_20201246_4_SEAUA_1_NTMBSR1PVTTR.dss'
     'Sulgipe''Master_DU01_20201246_1_SEAUA_1_NTMBSR1PVTTR.dss'
@@ -36,10 +37,6 @@ def main():
     vet_estados = eesd.run(1e-4, 100)
     fim = time.time()
     print(f'Estimador concluido em {fim-inicio}s')
-
-    if verbose:
-        print(gabarito)
-        print(vet_estados)
     
 if __name__ == '__main__':
     main()
